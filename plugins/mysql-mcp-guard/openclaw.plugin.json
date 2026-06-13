@@ -1,0 +1,22 @@
+{
+  "id": "mysql-mcp-guard",
+  "name": "MySQL MCP Guard",
+  "description": "Guarded MySQL tools with read-only defaults and optional output limits.",
+  "version": "0.1.0",
+  "configSchema": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+  },
+  "activation": {
+    "onStartup": true
+  },
+  "contracts": {
+    "tools": [
+      "mysql_mcp_guard_query",
+      "mysql_mcp_guard_list_tables",
+      "mysql_mcp_guard_describe_table",
+      "mysql_mcp_guard_count_estimate"
+    ]
+  }
+}
