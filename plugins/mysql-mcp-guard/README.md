@@ -4,14 +4,14 @@ Guarded MySQL tools for OpenClaw.
 
 ## What It Does
 
-MySQL MCP Guard exposes a small set of MySQL tools that read credentials from runtime environment variables and shell out to the local `mysql` client. It is designed for agent workflows where dumping a huge result set or full schema can overwhelm context.
+MySQL MCP Guard exposes a small set of MySQL tools that read credentials from OpenClaw plugin config, fall back to runtime environment variables, and shell out to the local `mysql` client. It is designed for agent workflows where dumping a huge result set or full schema can overwhelm context.
 
 The defaults are conservative:
 
-- Write SQL is disabled unless `MYSQL_MCP_ALLOW_WRITE=true`.
+- Write SQL is disabled unless `allowWrite=true`.
 - Only one SQL statement is accepted per call.
-- `MYSQL_MCP_DEFAULT_LIMIT`, `MYSQL_MCP_MAX_LIMIT`, `MYSQL_MCP_MAX_CELL_CHARS`, and `MYSQL_MCP_MAX_OUTPUT_CHARS` are optional.
-- For those limit variables, `0` or blank means unlimited.
+- `defaultLimit`, `maxLimit`, `maxCellChars`, and `maxOutputChars` are optional.
+- For those limit fields, `0` or blank means unlimited.
 
 ## Tools
 
@@ -20,9 +20,28 @@ The defaults are conservative:
 - `mysql_mcp_guard_describe_table`
 - `mysql_mcp_guard_count_estimate`
 
-## Required Environment
+## Configuration
 
-Set these in the OpenClaw runtime environment or MCP/plugin wrapper:
+Preferred OpenClaw plugin config fields:
+
+```json
+{
+  "host": "127.0.0.1",
+  "port": "3306",
+  "user": "readonly_user",
+  "password": "...",
+  "database": "app_db",
+  "mysqlBin": "/opt/homebrew/bin/mysql",
+  "connectTimeout": "8",
+  "allowWrite": false,
+  "defaultLimit": 0,
+  "maxLimit": 0,
+  "maxCellChars": 0,
+  "maxOutputChars": 0
+}
+```
+
+Environment fallback is also supported:
 
 ```text
 MYSQL_HOST
@@ -44,7 +63,7 @@ MYSQL_MCP_MAX_CELL_CHARS=0
 MYSQL_MCP_MAX_OUTPUT_CHARS=0
 ```
 
-Do not publish secrets in plugin metadata, docs, or examples.
+Do not publish secrets in plugin metadata, docs, examples, or screenshots.
 
 ## Build
 

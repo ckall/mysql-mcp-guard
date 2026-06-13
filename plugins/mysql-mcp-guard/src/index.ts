@@ -11,6 +11,38 @@ const WRITE_PREFIX_RE =
 const LIMIT_RE = /\blimit\s+\d+(\s*,\s*\d+|\s+offset\s+\d+)?\s*;?\s*$/is;
 const IDENTIFIER_RE = /^[A-Za-z0-9_.$-]+$/;
 
+const ConfigSchema = Type.Object({
+  mysqlBin: Type.Optional(Type.String({ description: "Path to the mysql CLI binary." })),
+  host: Type.Optional(Type.String({ description: "MySQL host." })),
+  port: Type.Optional(Type.Union([Type.String(), Type.Number()], { description: "MySQL port." })),
+  user: Type.Optional(Type.String({ description: "MySQL user." })),
+  password: Type.Optional(Type.String({ description: "MySQL password." })),
+  database: Type.Optional(Type.String({ description: "MySQL database/schema." })),
+  connectTimeout: Type.Optional(
+    Type.Union([Type.String(), Type.Number()], { description: "mysql CLI connect timeout in seconds." }),
+  ),
+  allowWrite: Type.Optional(Type.Boolean({ description: "Allow write SQL. Defaults to false." })),
+  defaultLimit: Type.Optional(Type.Number({ description: "Default row limit. 0 or blank means unlimited." })),
+  maxLimit: Type.Optional(Type.Number({ description: "Maximum row limit. 0 or blank means unlimited." })),
+  maxCellChars: Type.Optional(Type.Number({ description: "Maximum cell length. 0 or blank means unlimited." })),
+  maxOutputChars: Type.Optional(Type.Number({ description: "Maximum JSON output length. 0 or blank means unlimited." })),
+});
+
+type MysqlPluginConfig = {
+  mysqlBin?: string;
+  host?: string;
+  port?: string | number;
+  user?: string;
+  password?: string;
+  database?: string;
+  connectTimeout?: string | number;
+  allowWrite?: boolean;
+  defaultLimit?: number;
+  maxLimit?: number;
+  maxCellChars?: number;
+  maxOutputChars?: number;
+};
+
 type QueryPayload = {
   database: string;
   executed_sql: string;
@@ -28,28 +60,40 @@ function env(name: string, fallback = ""): string {
   return process.env[name] ?? fallback;
 }
 
-function optionalPositiveInt(name: string): number | null {
-  const raw = env(name).trim();
+function configString(config: MysqlPluginConfig, field: keyof MysqlPluginConfig, envName: string, fallback = ""): string {
+  const configValue = config[field];
+  if (configValue !== undefined && configValue !== null && String(configValue).trim() !== "") {
+    return String(configValue);
+  }
+  return env(envName, fallback);
+}
+
+function optionalPositiveInt(config: MysqlPluginConfig, field: keyof MysqlPluginConfig, envName: string): number | null {
+  const configValue = config[field];
+  const raw =
+    configValue !== undefined && configValue !== null && String(configValue).trim() !== ""
+      ? String(configValue).trim()
+      : env(envName).trim();
   if (raw === "") return null;
   const value = Number.parseInt(raw, 10);
-  if (!Number.isFinite(value) || Number.isNaN(value)) throw new Error(`${name} must be an integer`);
+  if (!Number.isFinite(value) || Number.isNaN(value)) throw new Error(`${String(field)} must be an integer`);
   return value > 0 ? value : null;
 }
 
-function mysqlConfig() {
+function mysqlConfig(config: MysqlPluginConfig = {}) {
   return {
-    bin: env("MYSQL_BIN", "/opt/homebrew/bin/mysql"),
-    host: env("MYSQL_HOST", "127.0.0.1"),
-    port: env("MYSQL_PORT", "3306"),
-    user: env("MYSQL_USER"),
-    password: env("MYSQL_PASSWORD"),
-    database: env("MYSQL_DATABASE"),
-    connectTimeout: env("MYSQL_MCP_CONNECT_TIMEOUT", "8"),
-    allowWrite: env("MYSQL_MCP_ALLOW_WRITE", "false").toLowerCase() === "true",
-    defaultLimit: optionalPositiveInt("MYSQL_MCP_DEFAULT_LIMIT"),
-    maxLimit: optionalPositiveInt("MYSQL_MCP_MAX_LIMIT"),
-    maxCellChars: optionalPositiveInt("MYSQL_MCP_MAX_CELL_CHARS"),
-    maxOutputChars: optionalPositiveInt("MYSQL_MCP_MAX_OUTPUT_CHARS"),
+    bin: configString(config, "mysqlBin", "MYSQL_BIN", "/opt/homebrew/bin/mysql"),
+    host: configString(config, "host", "MYSQL_HOST", "127.0.0.1"),
+    port: configString(config, "port", "MYSQL_PORT", "3306"),
+    user: configString(config, "user", "MYSQL_USER"),
+    password: configString(config, "password", "MYSQL_PASSWORD"),
+    database: configString(config, "database", "MYSQL_DATABASE"),
+    connectTimeout: configString(config, "connectTimeout", "MYSQL_MCP_CONNECT_TIMEOUT", "8"),
+    allowWrite: config.allowWrite ?? env("MYSQL_MCP_ALLOW_WRITE", "false").toLowerCase() === "true",
+    defaultLimit: optionalPositiveInt(config, "defaultLimit", "MYSQL_MCP_DEFAULT_LIMIT"),
+    maxLimit: optionalPositiveInt(config, "maxLimit", "MYSQL_MCP_MAX_LIMIT"),
+    maxCellChars: optionalPositiveInt(config, "maxCellChars", "MYSQL_MCP_MAX_CELL_CHARS"),
+    maxOutputChars: optionalPositiveInt(config, "maxOutputChars", "MYSQL_MCP_MAX_OUTPUT_CHARS"),
   };
 }
 
@@ -62,18 +106,18 @@ function cleanSql(sql: string): string {
   return trimmed.endsWith(";") ? trimmed.slice(0, -1).trim() : trimmed;
 }
 
-function resolveLimit(limit: number | undefined): number | null {
-  const cfg = mysqlConfig();
+function resolveLimit(limit: number | undefined, config: MysqlPluginConfig): number | null {
+  const cfg = mysqlConfig(config);
   const requested = limit && limit > 0 ? limit : cfg.defaultLimit;
   if (requested == null) return null;
   return cfg.maxLimit == null ? requested : Math.min(requested, cfg.maxLimit);
 }
 
-function ensureSafeSql(sql: string, limit: number | null): string {
-  const cfg = mysqlConfig();
+function ensureSafeSql(sql: string, limit: number | null, config: MysqlPluginConfig): string {
+  const cfg = mysqlConfig(config);
   const cleaned = cleanSql(sql);
   if (WRITE_PREFIX_RE.test(cleaned) && !cfg.allowWrite) {
-    throw new Error("Write SQL is disabled. Set MYSQL_MCP_ALLOW_WRITE=true only for a controlled server.");
+    throw new Error("Write SQL is disabled. Set allowWrite=true only for a controlled server.");
   }
   if (!cfg.allowWrite && !READ_PREFIX_RE.test(cleaned)) {
     throw new Error("Only SELECT/SHOW/DESCRIBE/EXPLAIN/WITH statements are allowed");
@@ -89,10 +133,10 @@ function ensureSafeSql(sql: string, limit: number | null): string {
   return cleaned;
 }
 
-async function runMysql(sql: string): Promise<string> {
-  const cfg = mysqlConfig();
-  if (!cfg.database) throw new Error("MYSQL_DATABASE is required");
-  if (!cfg.user) throw new Error("MYSQL_USER is required");
+async function runMysql(sql: string, config: MysqlPluginConfig): Promise<string> {
+  const cfg = mysqlConfig(config);
+  if (!cfg.database) throw new Error("database is required");
+  if (!cfg.user) throw new Error("user is required");
 
   const args = [
     "--host",
@@ -155,19 +199,19 @@ function parseTsv(stdout: string, limit: number | null, maxCellChars: number | n
   };
 }
 
-function boundedJson(payload: unknown): string {
-  const maxOutputChars = mysqlConfig().maxOutputChars;
+function boundedJson(payload: unknown, config: MysqlPluginConfig): string {
+  const maxOutputChars = mysqlConfig(config).maxOutputChars;
   const text = JSON.stringify(payload, null, 2);
   if (maxOutputChars == null || text.length <= maxOutputChars) return text;
   const marker = `\n...<output truncated at ${maxOutputChars} chars>`;
   return `${text.slice(0, Math.max(0, maxOutputChars - marker.length))}${marker}`;
 }
 
-async function queryLimited(sql: string, limit = 0): Promise<QueryPayload> {
-  const cfg = mysqlConfig();
-  const safeLimit = resolveLimit(limit);
-  const safeSql = ensureSafeSql(sql, safeLimit);
-  const stdout = await runMysql(safeSql);
+async function queryLimited(sql: string, limit = 0, config: MysqlPluginConfig): Promise<QueryPayload> {
+  const cfg = mysqlConfig(config);
+  const safeLimit = resolveLimit(limit, config);
+  const safeSql = ensureSafeSql(sql, safeLimit, config);
+  const stdout = await runMysql(safeSql, config);
   return {
     database: cfg.database,
     executed_sql: safeSql,
@@ -186,25 +230,26 @@ export default defineToolPlugin({
   id: "mysql-mcp-guard",
   name: "MySQL MCP Guard",
   description: "Guarded MySQL tools with read-only defaults and optional output limits.",
+  configSchema: ConfigSchema,
   tools: (tool) => [
     tool({
       name: "mysql_mcp_guard_query",
-      description: "Run one guarded MySQL statement. Limit 0 means unlimited unless MYSQL_MCP_DEFAULT_LIMIT is set.",
+      description: "Run one guarded MySQL statement. Limit 0 means unlimited unless defaultLimit is set.",
       parameters: Type.Object({
         sql: Type.String({ description: "One SQL statement." }),
         limit: Type.Optional(Type.Number({ description: "Maximum rows. 0 means unlimited/default.", default: 0 })),
       }),
-      execute: async ({ sql, limit }) => boundedJson(await queryLimited(sql, limit ?? 0)),
+      execute: async ({ sql, limit }, config) => boundedJson(await queryLimited(sql, limit ?? 0, config), config),
     }),
     tool({
       name: "mysql_mcp_guard_list_tables",
-      description: "List tables in the configured MYSQL_DATABASE.",
+      description: "List tables in the configured database.",
       parameters: Type.Object({
         pattern: Type.Optional(Type.String({ description: "Optional table-name substring filter.", default: "" })),
         limit: Type.Optional(Type.Number({ description: "Maximum tables. 0 means unlimited/default.", default: 0 })),
       }),
-      execute: async ({ pattern = "", limit = 0 }) => {
-        const safeLimit = resolveLimit(limit);
+      execute: async ({ pattern = "", limit = 0 }, config) => {
+        const safeLimit = resolveLimit(limit, config);
         const escaped = pattern
           .replace(/\\/g, "\\\\")
           .replace(/'/g, "''")
@@ -218,7 +263,7 @@ export default defineToolPlugin({
           "ORDER BY table_name",
           safeLimit == null ? "" : `LIMIT ${safeLimit}`,
         ].join(" ");
-        return boundedJson(await queryLimited(sql, safeLimit ?? 0));
+        return boundedJson(await queryLimited(sql, safeLimit ?? 0, config), config);
       },
     }),
     tool({
@@ -228,7 +273,7 @@ export default defineToolPlugin({
         table: Type.String({ description: "Table name." }),
         include_indexes: Type.Optional(Type.Boolean({ description: "Include index summary.", default: true })),
       }),
-      execute: async ({ table, include_indexes = true }) => {
+      execute: async ({ table, include_indexes = true }, config) => {
         const tableName = assertTableName(table);
         const columns = await queryLimited(
           [
@@ -238,9 +283,10 @@ export default defineToolPlugin({
             "ORDER BY ordinal_position",
           ].join(" "),
           0,
+          config,
         );
         const payload: Record<string, unknown> = {
-          database: mysqlConfig().database,
+          database: mysqlConfig(config).database,
           table: tableName,
           columns: columns.result.rows,
         };
@@ -253,10 +299,11 @@ export default defineToolPlugin({
               "ORDER BY index_name, seq_in_index",
             ].join(" "),
             0,
+            config,
           );
           payload.indexes = indexes.result.rows;
         }
-        return boundedJson(payload);
+        return boundedJson(payload, config);
       },
     }),
     tool({
@@ -265,7 +312,7 @@ export default defineToolPlugin({
       parameters: Type.Object({
         table: Type.String({ description: "Table name." }),
       }),
-      execute: async ({ table }) => {
+      execute: async ({ table }, config) => {
         const tableName = assertTableName(table);
         return boundedJson(
           await queryLimited(
@@ -276,7 +323,9 @@ export default defineToolPlugin({
               "LIMIT 1",
             ].join(" "),
             1,
+            config,
           ),
+          config,
         );
       },
     }),

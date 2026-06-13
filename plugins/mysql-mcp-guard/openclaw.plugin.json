@@ -2,11 +2,73 @@
   "id": "mysql-mcp-guard",
   "name": "MySQL MCP Guard",
   "description": "Guarded MySQL tools with read-only defaults and optional output limits.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "configSchema": {
     "type": "object",
-    "properties": {},
-    "additionalProperties": false
+    "properties": {
+      "mysqlBin": {
+        "type": "string",
+        "description": "Path to the mysql CLI binary."
+      },
+      "host": {
+        "type": "string",
+        "description": "MySQL host."
+      },
+      "port": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "number"
+          }
+        ],
+        "description": "MySQL port."
+      },
+      "user": {
+        "type": "string",
+        "description": "MySQL user."
+      },
+      "password": {
+        "type": "string",
+        "description": "MySQL password."
+      },
+      "database": {
+        "type": "string",
+        "description": "MySQL database/schema."
+      },
+      "connectTimeout": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "number"
+          }
+        ],
+        "description": "mysql CLI connect timeout in seconds."
+      },
+      "allowWrite": {
+        "type": "boolean",
+        "description": "Allow write SQL. Defaults to false."
+      },
+      "defaultLimit": {
+        "type": "number",
+        "description": "Default row limit. 0 or blank means unlimited."
+      },
+      "maxLimit": {
+        "type": "number",
+        "description": "Maximum row limit. 0 or blank means unlimited."
+      },
+      "maxCellChars": {
+        "type": "number",
+        "description": "Maximum cell length. 0 or blank means unlimited."
+      },
+      "maxOutputChars": {
+        "type": "number",
+        "description": "Maximum JSON output length. 0 or blank means unlimited."
+      }
+    }
   },
   "activation": {
     "onStartup": true
